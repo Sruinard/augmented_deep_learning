@@ -7,6 +7,24 @@ import optax
 import orbax
 import clu
 import metrics
+from typing import Tuple
+import orbax.checkpoint as ocp
+from pathlib import Path
+
+import flax.linen as nn
+import jax
+import jax.numpy as jnp
+import numpy as np
+import optax
+import tensorflow as tf
+from flax.training.train_state import TrainState
+from orbax.export import ExportManager, JaxModule, ServingConfig
+import datetime
+import os
+from clu import metric_writers
+from clu import periodic_actions
+from absl import logging
+import input_pipeline as ip
 
 
 class CreditCardFraudModel(nn.Module):
@@ -72,4 +90,129 @@ def eval_step(state: train_state.TrainState, x, y, eval_metrics):
             labels=y.squeeze(),
             logits=logits,
         )
+    )
+
+
+def create_manager(model_dir):
+    options = ocp.CheckpointManagerOptions(
+        max_to_keep=3, save_interval_steps=2, create=True
+    )
+
+    mngr = ocp.CheckpointManager(model_dir, ocp.PyTreeCheckpointer(), options=options)
+    return mngr
+
+
+def restore_or_create_state(mngr, rng, input_shape, reinit=False):
+    if mngr.latest_step() is None or reinit:
+        return create_train_state(rng, input_shape)
+    target = {"model": create_train_state(rng, input_shape)}
+    restored_state = mngr.restore(mngr.latest_step(), items=target)["model"]
+    return restored_state
+
+
+def to_saved_model(
+    state, preprocessing_fn, output_dir, etr=None, model_name="creditcard"
+):
+    # Construct a JaxModule where JAX->TF conversion happens.
+
+    timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+    jax_module = JaxModule(
+        state.params,
+        state.apply_fn,
+        trainable=False,
+        jit_compile=False,
+        jax2tf_kwargs={"enable_xla": False},
+        input_polymorphic_shape="(b, ...)",
+    )
+    # Export the JaxModule along with one or more serving configs.
+    export_mgr = ExportManager(
+        jax_module,
+        [
+            ServingConfig(
+                "serving_default",
+                tf_preprocessor=preprocessing_fn,
+                # tf_postprocessor=exampe1_postprocess
+                extra_trackable_resources=etr,
+            ),
+        ],
+    )
+    export_mgr.save(os.path.join(output_dir, model_name, timestamp))
+
+
+def train_and_eval():
+    path = Path("./models/checkpoints/")
+    model_dir = path.absolute()
+    p = ip.Preprocessor()
+    train_ds, val_ds = ip.get_datasets(
+        preprocessor=p,
+        train_src="data/example_gen/train.tfrecord",
+        val_src="data/example_gen/test.tfrecord",
+    )
+
+    x, _ = next(train_ds)
+    logdir = "./logs"
+    n_epochs = 10
+    rng = jax.random.PRNGKey(42)
+    n_batches_per_epoch = 1000
+    total_steps = n_epochs * n_batches_per_epoch
+    input_shape = jnp.shape(x)
+    n_train_steps = 1000
+    n_eval_staps = 100
+    saved_model_dir = "./models/saved_model"
+
+    metric_collection = metrics.MetricCollection.empty()
+
+    writer = metric_writers.create_default_writer(logdir)
+    hooks = [
+        # Outputs progress via metric writer (in this case logs & TensorBoard).
+        metrics.ReportProgress(
+            num_train_steps=total_steps, every_steps=n_batches_per_epoch, writer=writer
+        ),
+        metrics.Profile(logdir=logdir),
+        metrics.TensorboardCallback(
+            callback_fn=metrics.TensorboardCallback.write_metrics,
+            every_steps=n_batches_per_epoch,
+        ),
+    ]
+
+    mngr = create_manager(model_dir)
+    state = restore_or_create_state(mngr, rng, input_shape)
+
+    n_steps_taken = 0
+    for epoch in range(10):
+        train_metrics = metric_collection.empty()
+        eval_metrics = metric_collection.empty()
+        for step in range(n_train_steps):
+            x, y = next(train_ds)
+            state, train_metrics = train_step(state, x, y, train_metrics)
+
+        for step in range(n_eval_staps):
+            x, y = next(val_ds)
+            eval_metrics = eval_step(state, x, y, eval_metrics)
+            for hook in hooks:
+                hook(
+                    n_steps_taken,
+                    writer=writer,
+                    train_metrics=train_metrics,
+                    eval_metrics=eval_metrics,
+                )
+
+            mngr.save(step, {"model": state})
+            n_steps_taken += 1
+
+    print(
+        train_metrics.compute(),
+        eval_metrics.compute(),
+    )
+    restored_state = restore_or_create_state(mngr, rng, input_shape)
+
+    eval_m = metric_collection.empty()
+    for _ in range(100):
+        x, y = next(val_ds)
+        eval_m = eval_step(restored_state, x, y, eval_m)
+
+    print(eval_m.compute())
+
+    to_saved_model(
+        restored_state, p.serving_fn, saved_model_dir, etr={"preprocessor": p.norm}
     )

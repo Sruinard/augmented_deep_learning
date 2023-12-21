@@ -42,13 +42,6 @@ class Precision(metrics.Metric):
         return cls(true_positives=0, pred_positives=0)
 
 
-@flax.struct.dataclass  # <-- required for JAX transformations
-class MetricCollection(metrics.Collection):
-    loss: metrics.Average.from_output("loss")
-    accuracy: metrics.Accuracy
-    precision: Precision
-
-
 class TensorboardCallback(periodic_actions.PeriodicCallback):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -83,3 +76,10 @@ class Profile(periodic_actions.Profile):
 
     def _apply(self, step, t, **kwargs):
         super()._apply(step, t)
+
+
+@flax.struct.dataclass  # <-- required for JAX transformations
+class MetricCollection(metrics.Collection):
+    loss: metrics.Average.from_output("loss")
+    accuracy: metrics.Accuracy
+    precision: Precision
