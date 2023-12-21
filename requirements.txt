@@ -4,3 +4,5 @@ jaxlib
 flax
 tensorflow
 clu
+tensorflow_transform
+orbax-export    
