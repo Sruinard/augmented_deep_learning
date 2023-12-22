@@ -1,7 +1,7 @@
-import clu
+import ml_collections
 import tensorflow as tf
-import jax.numpy as jnp
-from dataclasses import dataclass
+
+from configs import default as cfg
 
 LABEL_KEY = "Class"
 
@@ -110,16 +110,9 @@ class Preprocessor(tf.Module):
         return norm_features
 
 
-@dataclass
-class HParams:
-    batch_size: int = 64
-    shuffle_buffer_size: int = 10000
-    shuffle_seed: int = 42
-    prefetch_buffer_size: int = 1000
-    n_epochs: int = 10
-
-
-def get_datasets(preprocessor, train_src, val_src, hp: HParams = HParams()):
+def get_datasets(
+    preprocessor, train_src, val_src, hp: ml_collections.ConfigDict = cfg.get_config()
+):
     """
     Get the training and validation datasets.
 
@@ -136,11 +129,11 @@ def get_datasets(preprocessor, train_src, val_src, hp: HParams = HParams()):
         features=TRAIN_SCHEMA,
         label_key=LABEL_KEY,
         reader=tf.data.TFRecordDataset,
-        shuffle_buffer_size=hp.shuffle_buffer_size,
-        shuffle_seed=hp.shuffle_seed,
+        shuffle_buffer_size=1000,
+        shuffle_seed=42,
         sloppy_ordering=True,
         num_epochs=1,
-        prefetch_buffer_size=hp.prefetch_buffer_size,
+        prefetch_buffer_size=10000,
         reader_num_threads=8,
         parser_num_threads=8,
         drop_final_batch=True,
@@ -152,11 +145,11 @@ def get_datasets(preprocessor, train_src, val_src, hp: HParams = HParams()):
         features=TRAIN_SCHEMA,
         label_key=LABEL_KEY,
         reader=tf.data.TFRecordDataset,
-        shuffle_buffer_size=hp.shuffle_buffer_size,
-        shuffle_seed=hp.shuffle_seed,
+        shuffle_buffer_size=1000,
+        shuffle_seed=42,
         sloppy_ordering=True,
         num_epochs=1,
-        prefetch_buffer_size=hp.prefetch_buffer_size,
+        prefetch_buffer_size=10000,
         reader_num_threads=8,
         parser_num_threads=8,
         drop_final_batch=True,

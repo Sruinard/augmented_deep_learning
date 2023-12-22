@@ -1,30 +1,19 @@
-import flax
-from flax.training import train_state
-import flax.linen as nn
-import jax
-import jax.numpy as jnp
-import optax
-import orbax
-import clu
-import metrics
-from typing import Tuple
-import orbax.checkpoint as ocp
+import datetime
+import os
 from pathlib import Path
 
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
-import numpy as np
+import ml_collections
 import optax
-import tensorflow as tf
-from flax.training.train_state import TrainState
-from orbax.export import ExportManager, JaxModule, ServingConfig
-import datetime
-import os
+import orbax.checkpoint as ocp
 from clu import metric_writers
-from clu import periodic_actions
-from absl import logging
+from flax.training import train_state
+from orbax.export import ExportManager, JaxModule, ServingConfig
+
 import input_pipeline as ip
+import metrics
 
 
 class CreditCardFraudModel(nn.Module):
@@ -111,10 +100,9 @@ def restore_or_create_state(mngr, rng, input_shape, reinit=False):
 
 
 def to_saved_model(
-    state, preprocessing_fn, output_dir, etr=None, model_name="creditcard"
+    state, preprocessing_fn, model_serving_dir, etr=None, model_name="creditcard"
 ):
     # Construct a JaxModule where JAX->TF conversion happens.
-
     timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
     jax_module = JaxModule(
         state.params,
@@ -136,10 +124,45 @@ def to_saved_model(
             ),
         ],
     )
-    export_mgr.save(os.path.join(output_dir, model_name, timestamp))
+    export_mgr.save(os.path.join(model_serving_dir, model_name, timestamp))
 
 
-def train_and_eval():
+def run_loop(
+    state,
+    train_ds,
+    val_ds,
+    n_train_steps,
+    n_eval_steps,
+    global_step,
+    hooks,
+    writer,
+    mngr,
+    metric_collection,
+):
+    train_metrics = metric_collection.empty()
+    eval_metrics = metric_collection.empty()
+    for step in range(n_train_steps):
+        x, y = next(train_ds)
+        state, train_metrics = train_step(state, x, y, train_metrics)
+
+    for step in range(n_eval_steps):
+        x, y = next(val_ds)
+        eval_metrics = eval_step(state, x, y, eval_metrics)
+        for hook in hooks:
+            hook(
+                global_step,
+                writer=writer,
+                train_metrics=train_metrics,
+                eval_metrics=eval_metrics,
+            )
+
+        mngr.save(step, {"model": state})
+        global_step += 1
+
+    return state, train_metrics, eval_metrics, global_step
+
+
+def train_and_eval(config: ml_collections.ConfigDict):
     path = Path("./models/checkpoints/")
     model_dir = path.absolute()
     p = ip.Preprocessor()

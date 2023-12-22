@@ -4,4 +4,4 @@ download_data:
 	curl -o ./data/raw/creditcard.csv https://storage.googleapis.com/download.tensorflow.org/data/creditcard.csv
 
 build_tfrecord:
-	python example_gen.py --src ./data/raw/ --dst ./data/example_gen/ --train_fraction 0.8
+	python example_gen.py --src ./data/raw/ --dst ./artifacts/example_gen/ --train_fraction 0.8

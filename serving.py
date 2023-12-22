@@ -1,11 +1,10 @@
-import os
-import glob
-import tensorflow as tf
-import input_pipeline as ip
 import json
-import requests
+import os
 import subprocess
 import time
+
+import requests
+import tensorflow as tf
 
 raw_batch = {
     "V1": tf.constant([-1.359807]),
@@ -54,7 +53,7 @@ def predict(model, batch):
 def stop_and_remove_container(container_name):
     try:
         # Build the Docker command to stop and remove the container
-        docker_command = f"docker rm -f {container_name}"
+        docker_command = f"/usr/local/bin/docker rm -f {container_name}"
 
         # Run the Docker command using subprocess
         subprocess.run(docker_command, shell=True, check=True)
@@ -77,23 +76,25 @@ def run_tf_serving(abs_model_src: str):
 
     time.sleep(5)
 
-    #  docker run  -p 8501:8501 --name creditcard --mount type=bind,source=/Users/stefruinard/Documents/personal/projects/202312_probabilistic_deep_learning/augmented_deep_learning/models/saved_model/creditcard,target=/models/creditcard -e MODEL_NAME=creditcard -t emacski/tensorflow-serving
-    subprocess.Popen(
-        [
-            "docker",
-            "run",
-            "-p",
-            "8501:8501",
-            "--name",
-            "creditcard",
-            "--mount",
-            f"type=bind,source={abs_model_src},target=/models/creditcard",
-            "-e",
-            "MODEL_NAME=creditcard",
-            "-t",
-            docker_image,
-        ]
-    )
+    tf_serving_command = f"/usr/local/bin/docker run -p 8501:8501 --name creditcard --mount type=bind,source={abs_model_src},target=/models/creditcard -e MODEL_NAME=creditcard -t {docker_image}"
+    subprocess.Popen(tf_serving_command, shell=True)#, stdout=subprocess.PIPE)
+    # subprocess.Popen(
+    #     [
+    #         "/usr/local/bin/docker ps",
+    #         "run",
+    #         "-p",
+    #         "8501:8501",
+    #         "--name",
+    #         "creditcard",
+    #         "--mount",
+    #         f"type=bind,source={abs_model_src},target=/models/creditcard",
+    #         "-e",
+    #         "MODEL_NAME=creditcard",
+    #         "-t",
+    #         docker_image,
+    #     ],
+    #     shell=True,
+    # )
     time.sleep(5)
 
 
