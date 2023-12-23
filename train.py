@@ -1,6 +1,5 @@
 import datetime
 import os
-from pathlib import Path
 
 import flax.linen as nn
 import jax
@@ -162,80 +161,57 @@ def run_loop(
     return state, train_metrics, eval_metrics, global_step
 
 
-def train_and_eval(config: ml_collections.ConfigDict):
-    path = Path("./models/checkpoints/")
-    model_dir = path.absolute()
+def train_and_eval(cfg: ml_collections.ConfigDict):
     p = ip.Preprocessor()
     train_ds, val_ds = ip.get_datasets(
-        preprocessor=p,
-        train_src="data/example_gen/train.tfrecord",
-        val_src="data/example_gen/test.tfrecord",
+        preprocessor=p, train_src=cfg.train_src, val_src=cfg.val_src
     )
 
-    x, _ = next(train_ds)
-    logdir = "./logs"
-    n_epochs = 10
-    rng = jax.random.PRNGKey(42)
-    n_batches_per_epoch = 1000
-    total_steps = n_epochs * n_batches_per_epoch
-    input_shape = jnp.shape(x)
-    n_train_steps = 1000
-    n_eval_staps = 100
-    saved_model_dir = "./models/saved_model"
+    x, _ = next(iter(train_ds))
 
+    rng = jax.random.PRNGKey(cfg.seed)
     metric_collection = metrics.MetricCollection.empty()
 
-    writer = metric_writers.create_default_writer(logdir)
+    writer = metric_writers.create_default_writer(cfg.logdir)
     hooks = [
         # Outputs progress via metric writer (in this case logs & TensorBoard).
         metrics.ReportProgress(
-            num_train_steps=total_steps, every_steps=n_batches_per_epoch, writer=writer
+            num_train_steps=cfg.n_steps_per_epoch * cfg.n_epochs,
+            every_steps=cfg.n_steps_per_epoch,
+            writer=writer,
         ),
-        metrics.Profile(logdir=logdir),
+        metrics.Profile(logdir=cfg.logdir),
         metrics.TensorboardCallback(
             callback_fn=metrics.TensorboardCallback.write_metrics,
-            every_steps=n_batches_per_epoch,
+            every_steps=cfg.n_steps_per_epoch,
         ),
     ]
 
-    mngr = create_manager(model_dir)
-    state = restore_or_create_state(mngr, rng, input_shape)
+    mngr = create_manager(cfg.checkpoint_dir)
+    state = restore_or_create_state(mngr, rng, x.shape)
 
-    n_steps_taken = 0
-    for epoch in range(10):
-        train_metrics = metric_collection.empty()
-        eval_metrics = metric_collection.empty()
-        for step in range(n_train_steps):
-            x, y = next(train_ds)
-            state, train_metrics = train_step(state, x, y, train_metrics)
+    global_step = 0
+    for _ in range(cfg.n_epochs):
+        state, train_metrics, eval_metrics, global_step = run_loop(
+            state=state,
+            train_ds=train_ds,
+            val_ds=val_ds,
+            n_train_steps=cfg.n_steps_per_epoch,
+            n_eval_steps=cfg.n_steps_per_epoch // 10,
+            global_step=global_step,
+            hooks=hooks,
+            writer=writer,
+            mngr=mngr,
+            metric_collection=metric_collection,
+        )
 
-        for step in range(n_eval_staps):
-            x, y = next(val_ds)
-            eval_metrics = eval_step(state, x, y, eval_metrics)
-            for hook in hooks:
-                hook(
-                    n_steps_taken,
-                    writer=writer,
-                    train_metrics=train_metrics,
-                    eval_metrics=eval_metrics,
-                )
+        print(f"train_metrics: {train_metrics.compute()}")
+        print(f"eval_metrics: {eval_metrics.compute()}")
 
-            mngr.save(step, {"model": state})
-            n_steps_taken += 1
-
-    print(
-        train_metrics.compute(),
-        eval_metrics.compute(),
-    )
-    restored_state = restore_or_create_state(mngr, rng, input_shape)
-
-    eval_m = metric_collection.empty()
-    for _ in range(100):
-        x, y = next(val_ds)
-        eval_m = eval_step(restored_state, x, y, eval_m)
-
-    print(eval_m.compute())
-
+    best_model_state = restore_or_create_state(mngr, rng, x.shape)
     to_saved_model(
-        restored_state, p.serving_fn, saved_model_dir, etr={"preprocessor": p.norm}
+        best_model_state,
+        p.serving_fn,
+        cfg.model_serving_dir,
+        etr={"preprocessor": p.norm},
     )

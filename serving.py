@@ -3,8 +3,11 @@ import os
 import subprocess
 import time
 
+import ml_collections
 import requests
 import tensorflow as tf
+
+from configs import default as cfgs
 
 raw_batch = {
     "V1": tf.constant([-1.359807]),
@@ -50,10 +53,10 @@ def predict(model, batch):
     return model.signatures["serving_default"](**batch)["output_0"]
 
 
-def stop_and_remove_container(container_name):
+def stop_and_remove_container(container_name, path_to_docker="/usr/bin/docker"):
     try:
         # Build the Docker command to stop and remove the container
-        docker_command = f"/usr/local/bin/docker rm -f {container_name}"
+        docker_command = f"{path_to_docker} rm -f {container_name}"
 
         # Run the Docker command using subprocess
         subprocess.run(docker_command, shell=True, check=True)
@@ -63,7 +66,7 @@ def stop_and_remove_container(container_name):
         print(f"Error: {e}")
 
 
-def run_tf_serving(abs_model_src: str):
+def run_tf_serving(abs_model_src: str, path_to_docker="/usr/bin/docker"):
     # check if mac_m1
     is_mac_m1 = False
     if "arm64" in subprocess.check_output("uname -a", shell=True).decode("utf-8"):
@@ -76,25 +79,8 @@ def run_tf_serving(abs_model_src: str):
 
     time.sleep(5)
 
-    tf_serving_command = f"/usr/local/bin/docker run -p 8501:8501 --name creditcard --mount type=bind,source={abs_model_src},target=/models/creditcard -e MODEL_NAME=creditcard -t {docker_image}"
-    subprocess.Popen(tf_serving_command, shell=True)#, stdout=subprocess.PIPE)
-    # subprocess.Popen(
-    #     [
-    #         "/usr/local/bin/docker ps",
-    #         "run",
-    #         "-p",
-    #         "8501:8501",
-    #         "--name",
-    #         "creditcard",
-    #         "--mount",
-    #         f"type=bind,source={abs_model_src},target=/models/creditcard",
-    #         "-e",
-    #         "MODEL_NAME=creditcard",
-    #         "-t",
-    #         docker_image,
-    #     ],
-    #     shell=True,
-    # )
+    tf_serving_command = f"{path_to_docker} run -p 8501:8501 --name creditcard --mount type=bind,source={abs_model_src},target=/models/creditcard -e MODEL_NAME=creditcard -t {docker_image}"
+    subprocess.Popen(tf_serving_command, shell=True)
     time.sleep(5)
 
 
@@ -124,17 +110,16 @@ def predict_with_docker(model_name, batch, use_instances_key=True):
     return json.loads(json_response.text)
 
 
-def main():
-    model_name = "creditcard"
-    serving_model_dir = "models/saved_model"
-    model = load_latest_model(serving_model_dir, model_name)
+def main(cfg: ml_collections.ConfigDict):
+    model = load_latest_model(cfg.model_serving_dir, cfg.model_name)
     pred = predict(model, raw_batch)
-    print(pred)
+    print(f"Predictions with jax model loaded as saved_model: {pred}")
 
-    run_tf_serving(os.path.abspath(os.path.join(serving_model_dir, model_name)))
-    pred = predict_with_docker(model_name, raw_batch)
-    print(pred)
+    run_tf_serving(os.path.abspath(os.path.join(cfg.model_serving_dir, cfg.model_name)))
+    pred = predict_with_docker(cfg.model_name, raw_batch)
+    print(f"Predictions with jax model running in TFServing container: {pred}")
 
 
 if __name__ == "__main__":
-    main()
+    cfg = cfgs.get_config()
+    main(cfg=cfg)

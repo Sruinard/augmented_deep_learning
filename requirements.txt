@@ -1,8 +1,8 @@
-ml_collections
-jax
-jaxlib
-flax
-tensorflow
-clu
-tensorflow_transform
-orbax-export    
+ml_collections==0.1.1
+tensorflow==2.14.0
+jax==0.4.23
+jaxlib==0.4.23
+flax==0.7.5
+clu==0.0.9
+orbax-export==0.0.3    
+ipykernel==6.27.1

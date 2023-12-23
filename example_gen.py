@@ -14,6 +14,18 @@ flags.DEFINE_string("dst", None, "Path to the folder containing the tfrecords")
 flags.DEFINE_float("train_fraction", 0.8, "Fraction of the train dataset")
 
 
+def _int64_feature(value):
+    return tf.train.Feature(int64_list=tf.train.Int64List(value=[value]))
+
+
+def _floats_feature(value):
+    return tf.train.Feature(float_list=tf.train.FloatList(value=[value]))
+
+
+def _bytes_feature(value):
+    return tf.train.Feature(bytes_list=tf.train.BytesList(value=[value]))
+
+
 def read_csv(path):
     record_defaults = [tf.float32] * 30 + [tf.int32]
     return tf.data.experimental.CsvDataset(
@@ -27,16 +39,6 @@ def read_csv_from_folder(src):
     return creditcard_ds
 
 
-def _int64_feature(value):
-    return tf.train.Feature(int64_list=tf.train.Int64List(value=[value]))
-
-
-def _floats_feature(value):
-    return tf.train.Feature(float_list=tf.train.FloatList(value=[value]))
-
-
-def _bytes_feature(value):
-    return tf.train.Feature(bytes_list=tf.train.BytesList(value=[value]))
 
 
 def split_dataset_in_train_test(ds, train_split_fraction=0.8):
