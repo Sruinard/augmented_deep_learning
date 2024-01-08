@@ -164,10 +164,12 @@ def run_loop(
 def train_and_eval(cfg: ml_collections.ConfigDict):
     p = ip.Preprocessor()
     train_ds, val_ds = ip.get_datasets(
-        preprocessor=p, train_src=cfg.train_src, val_src=cfg.val_src
+        preprocessor=p,
+        train_src=cfg.train_src,
+        val_src=cfg.val_src,
     )
 
-    x, _ = next(iter(train_ds))
+    x, _ = next(train_ds)
 
     rng = jax.random.PRNGKey(cfg.seed)
     metric_collection = metrics.MetricCollection.empty()

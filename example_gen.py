@@ -1,18 +1,20 @@
 """
 This file provides the code to generate TFRecords from the raw data.
 """
-from typing import Dict
-import tensorflow as tf
 import os
+from typing import Dict
 
+import tensorflow as tf
 from absl import app, flags, logging
+from ml_collections import config_flags
 
 FLAGS = flags.FLAGS
-# add src, dst and train_split_fraction as flags
-flags.DEFINE_string("src", None, "Path to the folder containing the raw data")
-flags.DEFINE_string("dst", None, "Path to the folder containing the tfrecords")
-flags.DEFINE_float("train_fraction", 0.8, "Fraction of the train dataset")
-
+config_flags.DEFINE_config_file(
+    "config",
+    None,
+    "File path to the training hyperparameter configuration.",
+    lock_config=True,
+)
 
 def _int64_feature(value):
     return tf.train.Feature(int64_list=tf.train.Int64List(value=[value]))
@@ -39,9 +41,15 @@ def read_csv_from_folder(src):
     return creditcard_ds
 
 
+def _int64_feature(value):
+    return tf.train.Feature(int64_list=tf.train.Int64List(value=[value]))
 
 
-def split_dataset_in_train_test(ds, train_split_fraction=0.8):
+def _floats_feature(value):
+    return tf.train.Feature(float_list=tf.train.FloatList(value=[value]))
+
+
+def split_dataset_in_train_eval(ds, train_split_fraction=0.8):
     # this is a bit ugly, but textline datasets returns unknown cardinatility
     logging.info("Counting elements in dataset")
     n_elems_in_ds = len(list(ds.as_numpy_iterator()))
@@ -52,7 +60,7 @@ def split_dataset_in_train_test(ds, train_split_fraction=0.8):
     train_size = int(n_elems_in_ds * train_split_fraction)
     train_ds = ds.take(train_size)
     test_ds = ds.skip(train_size)
-    return {"train": train_ds, "test": test_ds}
+    return {"train": train_ds, "eval": test_ds}
 
 
 # load, split and write to tfrecords
@@ -108,14 +116,15 @@ def write_datasets_to_tfrecord(datasets: Dict[str, tf.data.Dataset], dst: str):
 
 def main(argv):
     del argv  # unused
+    cfg = FLAGS.config
     # load data
-    creditcard_ds = read_csv_from_folder(FLAGS.src)
+    creditcard_ds = read_csv_from_folder(cfg.raw_data_src)
 
     # split dataset
-    datasets = split_dataset_in_train_test(creditcard_ds, FLAGS.train_fraction)
+    datasets = split_dataset_in_train_eval(creditcard_ds, cfg.train_fraction)
 
     # write datasets to tfrecords
-    write_datasets_to_tfrecord(datasets, FLAGS.dst)
+    write_datasets_to_tfrecord(datasets, cfg.example_gen_dir)
 
 
 if __name__ == "__main__":
