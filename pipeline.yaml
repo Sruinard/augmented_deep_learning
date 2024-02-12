@@ -1,0 +1,128 @@
+# PIPELINE DEFINITION
+# Name: ml-pipeline
+components:
+  comp-build-base-dataset-op:
+    executorLabel: exec-build-base-dataset-op
+    outputDefinitions:
+      artifacts:
+        raw_ds:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+  comp-example-gen-op:
+    executorLabel: exec-example-gen-op
+    inputDefinitions:
+      artifacts:
+        raw_ds:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+    outputDefinitions:
+      artifacts:
+        example_gen_dir:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+      parameters:
+        Output:
+          parameterType: STRING
+deploymentSpec:
+  executors:
+    exec-build-base-dataset-op:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - build_base_dataset_op
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.5.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'requests' &&\
+          \ \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef build_base_dataset_op(raw_ds: Output[Dataset]):\n    import requests\n\
+          \n    result = requests.get(\n        \"https://storage.googleapis.com/download.tensorflow.org/data/creditcard.csv\"\
+          \n    )\n\n    raw_ds.metadata[\"description\"] = \"Raw dataset for creditcard\
+          \ fraud detection\"\n    raw_ds.metadata[\"version\"] = \"1.0.0\"\n    raw_ds.metadata[\"\
+          labels\"] = {\"type\": \"tabular\", \"domain\": \"finance\"}\n    raw_ds.metadata[\"\
+          extension\"] = \".csv\"\n\n    with open(raw_ds.path, \"wb\") as f:\n  \
+          \      f.write(result.content)\n\n"
+        image: python:3.7
+    exec-example-gen-op:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - example_gen_op
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.5.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"' && \"\
+          $0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef example_gen_op(\n    raw_ds: Input[Dataset],\n    example_gen_dir:\
+          \ Output[Dataset],\n) -> str:\n    from configs import default as cfgs\n\
+          \    import example_gen\n\n    cfg = cfgs.get_config()\n    creditcard_ds\
+          \ = example_gen.read_csv_from_folder(raw_ds.path)\n\n    # split dataset\n\
+          \    datasets = example_gen.split_dataset_in_train_eval(\n        creditcard_ds,\
+          \ cfg.train_fraction\n    )\n\n    # write datasets to tfrecords\n    example_gen.write_datasets_to_tfrecord(datasets,\
+          \ example_gen_dir.path)\n\n"
+        image: acrkfdwe99.azurecr.io/mlops/creditcard-ml
+pipelineInfo:
+  name: ml-pipeline
+root:
+  dag:
+    tasks:
+      build-base-dataset-op:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-build-base-dataset-op
+        taskInfo:
+          name: build-base-dataset-op
+      example-gen-op:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-example-gen-op
+        dependentTasks:
+        - build-base-dataset-op
+        inputs:
+          artifacts:
+            raw_ds:
+              taskOutputArtifact:
+                outputArtifactKey: raw_ds
+                producerTask: build-base-dataset-op
+        taskInfo:
+          name: example-gen-op
+schemaVersion: 2.1.0
+sdkVersion: kfp-2.5.0

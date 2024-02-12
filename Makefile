@@ -11,3 +11,7 @@ run_training:
 
 run_serving:
 	python serving.py --config=configs/default.py
+
+kfppush:
+	docker build -t acrkfdwe99.azurecr.io/mlops/creditcard-ml .
+	docker push acrkfdwe99.azurecr.io/mlops/creditcard-ml

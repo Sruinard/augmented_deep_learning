@@ -6,3 +6,4 @@ flax==0.7.5
 clu==0.0.9
 orbax-export==0.0.3    
 ipykernel==6.27.1
+kfp==1.8.22

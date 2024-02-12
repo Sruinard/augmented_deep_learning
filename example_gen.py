@@ -16,6 +16,7 @@ config_flags.DEFINE_config_file(
     lock_config=True,
 )
 
+
 def _int64_feature(value):
     return tf.train.Feature(int64_list=tf.train.Int64List(value=[value]))
 
@@ -36,7 +37,8 @@ def read_csv(path):
 
 
 def read_csv_from_folder(src):
-    creditcard_files = tf.data.Dataset.list_files(os.path.join(src, "*.csv"))
+    # creditcard_files = tf.data.Dataset.list_files(os.path.join(src, "*.csv"))
+    creditcard_files = tf.data.Dataset.from_tensor_slices([src])
     creditcard_ds = creditcard_files.interleave(read_csv, cycle_length=3)
     return creditcard_ds
 
